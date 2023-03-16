@@ -2,6 +2,8 @@ package org.apache.flink.streaming.connectors.redis.table;
 
 import org.apache.flink.calcite.shaded.com.google.common.cache.Cache;
 import org.apache.flink.calcite.shaded.com.google.common.cache.CacheBuilder;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.streaming.connectors.redis.common.config.FlinkConfigBase;
 import org.apache.flink.streaming.connectors.redis.common.config.RedisLookupOptions;
 import org.apache.flink.streaming.connectors.redis.common.config.RedisValueDataStructure;
@@ -43,7 +45,9 @@ public class RedisLookupFunction extends AsyncTableFunction<RowData> {
     private final long cacheMaxSize;
     private final long cacheTtl;
     private final int maxRetryTimes;
+    private final String keyPrefix;
     private final List<DataType> dataTypes;
+    private final List<String> columnNames;
     private final boolean loadAll;
     private final RedisValueDataStructure redisValueDataStructure;
     private Cache<String, Object> cache;
@@ -56,14 +60,14 @@ public class RedisLookupFunction extends AsyncTableFunction<RowData> {
         Preconditions.checkNotNull(
                 flinkConfigBase, "Redis connection pool config should not be null");
         Preconditions.checkNotNull(redisMapper, "Redis Mapper can not be null");
-
+        this.columnNames=resolvedSchema.getColumnNames();
         this.flinkConfigBase = flinkConfigBase;
         this.cacheTtl = redisLookupOptions.getCacheTtl();
         this.cacheMaxSize = redisLookupOptions.getCacheMaxSize();
         this.maxRetryTimes = redisLookupOptions.getMaxRetryTimes();
+        this.keyPrefix=redisLookupOptions.getKeyPrefix();
         this.loadAll = redisLookupOptions.getLoadAll();
         this.redisValueDataStructure = redisLookupOptions.getRedisValueDataStructure();
-
         if (this.loadAll) {
             Preconditions.checkArgument(
                     cacheMaxSize != -1 && cacheTtl != -1,
@@ -92,9 +96,11 @@ public class RedisLookupFunction extends AsyncTableFunction<RowData> {
         if (cache != null) {
             GenericRowData genericRowData = null;
             switch (redisCommand) {
-                case GET:
+                case GET: {
                     genericRowData = (GenericRowData) cache.getIfPresent(String.valueOf(keys[0]));
+                    //System.out.println("eval:"+String.valueOf(keys[0]));
                     break;
+                }
                 case HGET:
                     if (loadAll) {
                         Map<String, String> map =
@@ -148,28 +154,37 @@ public class RedisLookupFunction extends AsyncTableFunction<RowData> {
      */
     private void query(CompletableFuture<Collection<GenericRowData>> resultFuture, Object... keys)
             throws Exception {
+        String tempkey;
+        if(keyPrefix!=null && !"".equals(keyPrefix)){
+            tempkey=keyPrefix+String.valueOf(keys[0]);
+        }else{
+            tempkey=String.valueOf(keys[0]);
+        }
+        System.out.println(tempkey);
         switch (redisCommand) {
-            case GET:
+            case GET:{
                 this.redisCommandsContainer
-                        .get(String.valueOf(keys[0]))
+                        .get(tempkey)
                         .thenAccept(
                                 result -> {
+                                    //解析数据
                                     GenericRowData rowData = createRowDataForString(keys, result);
+                                    //System.out.println("==="+keys+"==="+result);
                                     resultFuture.complete(Collections.singleton(rowData));
                                     if (cache != null && result != null) {
-                                        cache.put(String.valueOf(keys[0]), rowData);
+                                        cache.put(String.valueOf(tempkey), rowData);
                                     }
                                 });
 
                 break;
-            case HGET:
+        }
+            case HGET:{
                 if (loadAll) {
                     loadAllElements(resultFuture, keys);
                     return;
                 }
-
                 this.redisCommandsContainer
-                        .hget(String.valueOf(keys[0]), String.valueOf(keys[1]))
+                        .hget(String.valueOf(tempkey), String.valueOf(keys[1]))
                         .thenAccept(
                                 result -> {
                                     GenericRowData rowData = createRowDataForHash(keys, result);
@@ -185,6 +200,8 @@ public class RedisLookupFunction extends AsyncTableFunction<RowData> {
                                 });
 
                 break;
+            }
+
             default:
         }
     }
@@ -196,6 +213,7 @@ public class RedisLookupFunction extends AsyncTableFunction<RowData> {
      */
     private void loadAllElements(
             CompletableFuture<Collection<GenericRowData>> resultFuture, Object... keys) {
+
         this.redisCommandsContainer
                 .hgetAll(String.valueOf(keys[0]))
                 .thenAccept(
@@ -229,11 +247,11 @@ public class RedisLookupFunction extends AsyncTableFunction<RowData> {
 
     /**
      * create row data for string.
-     *
      * @param keys
      * @param value
      */
     private GenericRowData createRowDataForString(Object[] keys, String value) {
+
         if (redisValueDataStructure == RedisValueDataStructure.column) {
             GenericRowData genericRowData = new GenericRowData(2);
             genericRowData.setField(0, keys[0]);
@@ -242,12 +260,37 @@ public class RedisLookupFunction extends AsyncTableFunction<RowData> {
                     RedisRowConverter.dataTypeFromString(dataTypes.get(1).getLogicalType(), value));
             return genericRowData;
         }
-        return createRowData(value);
+        //改成代码
+        if (redisValueDataStructure == RedisValueDataStructure.row) {
+            return createRowData(value);
+        }
+
+        if (redisValueDataStructure == RedisValueDataStructure.JSON) {
+            GenericRowData genericRowData = new GenericRowData(dataTypes.size());
+            ObjectMapper mapper = new ObjectMapper();
+            try {
+                Map<String, String> rowMapData
+                        = mapper.readValue(value,
+                        Map.class);
+                String[] mapvalue= rowMapData.values().toArray(new String[0]);
+                for (int i = 0; i < dataTypes.size(); i++) {
+                    genericRowData.setField(
+                            i,
+                            RedisRowConverter.dataTypeFromString(dataTypes.get(i).getLogicalType(), mapvalue[i]));
+                }
+
+            } catch (JsonProcessingException e) {
+                LOG.error("deserializeJson  error: ", e);
+                e.printStackTrace();
+            }
+            return genericRowData;
+        }
+
+       return null;
     }
 
     /**
      * create row data for whole row.
-     *
      * @param value
      * @return
      */

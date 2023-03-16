@@ -1,8 +1,11 @@
 package org.apache.flink.streaming.connectors.redis.table;
 
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.connectors.redis.common.config.FlinkConfigBase;
+import org.apache.flink.streaming.connectors.redis.common.config.RedisOptions;
 import org.apache.flink.streaming.connectors.redis.common.config.RedisSinkOptions;
 import org.apache.flink.streaming.connectors.redis.common.config.RedisValueDataStructure;
 import org.apache.flink.streaming.connectors.redis.common.container.RedisCommandsContainer;
@@ -24,8 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.LocalTime;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * @param <IN>
@@ -45,7 +47,9 @@ public class RedisSinkFunction<IN> extends RichSinkFunction<IN> {
 
     private final int maxRetryTimes;
     private List<DataType> columnDataTypes;
-
+    private final String keyPrefix;
+    private final List<String> columnNames;
+    private   List<String>  primaryKeys;
     private RedisValueDataStructure redisValueDataStructure;
 
     /**
@@ -62,7 +66,13 @@ public class RedisSinkFunction<IN> extends RichSinkFunction<IN> {
             ResolvedSchema resolvedSchema) {
         Objects.requireNonNull(flinkConfigBase, "Redis connection pool config should not be null");
         Objects.requireNonNull(redisSinkMapper, "Redis Mapper can not be null");
-
+        //获取主键
+        if(resolvedSchema.getPrimaryKey().orElse(null)!=null){
+            this.primaryKeys=resolvedSchema.getPrimaryKey().orElse(null).getColumns();
+        }
+        this.columnNames=resolvedSchema.getColumnNames();
+        //System.out.println(resolvedSchema.getColumnNames().get(0));
+        this.keyPrefix =redisSinkOptions.getKeyPrefix();
         this.flinkConfigBase = flinkConfigBase;
         this.maxRetryTimes = redisSinkOptions.getMaxRetryTimes();
         this.redisSinkMapper = redisSinkMapper;
@@ -98,21 +108,50 @@ public class RedisSinkFunction<IN> extends RichSinkFunction<IN> {
     public void invoke(IN input, Context context) throws Exception {
         RowData rowData = (RowData) input;
         RowKind kind = rowData.getRowKind();
+
         if (kind != RowKind.INSERT && kind != RowKind.UPDATE_AFTER) {
             return;
         }
 
         String[] params = new String[calcParamNumByCommand()];
-        for (int i = 0; i < params.length; i++) {
-            params[i] =
-                    redisSinkMapper.getKeyFromData(
-                            rowData, columnDataTypes.get(i).getLogicalType(), i);
-        }
 
         // the value is taken from the entire row when redisValueFromType is row, and columns
-        // separated by '\01'
+
+        //System.out.println("redisValueDataStructure:"+redisValueDataStructure);
+        //列分割模式
+        if (redisValueDataStructure == RedisValueDataStructure.column){
+            for (int i = 0; i < params.length; i++) {
+                params[i] =
+                        redisSinkMapper.getKeyFromData(
+                                rowData, columnDataTypes.get(i).getLogicalType(), i);
+
+            }
+
+         }
+
+
+        // 行列分割模式 separated by '|'
         if (redisValueDataStructure == RedisValueDataStructure.row) {
             params[params.length - 1] = serializeWholeRow(rowData);
+        }
+        //json模式
+        if (redisValueDataStructure == RedisValueDataStructure.JSON) {
+            params[params.length - 1] = serializeJsonWholeRow(rowData);
+        }
+        //取出主键值
+
+        String primaryKey = "";
+        if(primaryKeys!=null && !primaryKeys.isEmpty()){
+            //取出第一个字段
+            primaryKey=primaryKeys.get(0);
+        }
+        int primaryKeyIndex=columnNames.indexOf(primaryKey);
+        //System.out.println(primaryKeyIndex);
+        //根据主键索引取出值
+        String primaryKeyValue=getPrimaryKeyValue(rowData,primaryKeyIndex);
+        //如果没有提供主键,取出第一列的值
+        if(null!=keyPrefix && !"".equals(keyPrefix)){
+            params[0]=keyPrefix+primaryKeyValue;
         }
 
         startSink(params);
@@ -237,6 +276,7 @@ public class RedisSinkFunction<IN> extends RichSinkFunction<IN> {
      * @return
      */
     private String serializeWholeRow(RowData rowData) {
+
         StringBuilder stringBuilder = new StringBuilder();
         for (int i = 0; i < columnDataTypes.size(); i++) {
             stringBuilder.append(
@@ -248,6 +288,49 @@ public class RedisSinkFunction<IN> extends RichSinkFunction<IN> {
         }
         return stringBuilder.toString();
     }
+    /**
+     *获得跟进主键获取值
+     */
+    private String getPrimaryKeyValue(RowData rowData,int indexof) throws Exception{
+        String primaryKeyValue;
+        if(indexof>0){
+            primaryKeyValue=RedisRowConverter.rowDataToString(
+                    columnDataTypes.get(indexof).getLogicalType(), rowData, indexof);
+        }else{
+            //取出第一例的值
+            primaryKeyValue=RedisRowConverter.rowDataToString(
+                    columnDataTypes.get(0).getLogicalType(), rowData, 0);
+        }
+
+        //System.out.println("====primaryKeyValue===="+primaryKeyValue);
+        // StringBuilder stringBuilder = new StringBuilder();
+        return primaryKeyValue;
+    }
+
+    private String serializeJsonWholeRow(RowData rowData) throws Exception{
+
+        Map<String,Object> map = new LinkedHashMap();
+        ObjectMapper mapper = new ObjectMapper();
+        for (int i = 0; i < columnDataTypes.size(); i++) {
+            map.put(columnNames.get(i),RedisRowConverter.rowDataToString(
+                    columnDataTypes.get(i).getLogicalType(), rowData, i));
+        }
+
+        String josnValue = "";
+        try {
+            josnValue = mapper.writeValueAsString(map);
+            System.out.println(josnValue);
+        } catch (JsonProcessingException e) {
+            LOG.error("serializeJsonWholeRow error: ", e);
+            throw e;
+           // e.printStackTrace();
+        }
+
+
+       // StringBuilder stringBuilder = new StringBuilder();
+        return josnValue;
+    }
+
 
     /**
      * calculate the number of redis command's param

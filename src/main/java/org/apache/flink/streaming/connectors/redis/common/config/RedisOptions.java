@@ -170,4 +170,12 @@ public class RedisOptions {
                     .stringType()
                     .noDefaultValue()
                     .withDescription("Optional redis key expire on time, eg: 10:00 12:12:01");
+
+    //redis key前缀
+    public static final ConfigOption<String> KEYPREFIX = ConfigOptions
+            .key("keyPrefix")
+            .stringType()
+            .noDefaultValue()
+            .withDescription("Optional keyPrefix for connect to redis");
+
 }

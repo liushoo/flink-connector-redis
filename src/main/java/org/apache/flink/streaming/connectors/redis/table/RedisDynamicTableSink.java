@@ -31,6 +31,7 @@ public class RedisDynamicTableSink implements DynamicTableSink {
     public RedisDynamicTableSink(
             Map<String, String> properties, ResolvedSchema resolvedSchema, ReadableConfig config) {
         this.properties = properties;
+
         Preconditions.checkNotNull(properties, "properties should not be null");
         this.config = config;
         this.sinkParallelism = config.get(RedisOptions.SINK_PARALLELISM);
@@ -44,6 +45,7 @@ public class RedisDynamicTableSink implements DynamicTableSink {
         redisSinkOptions =
                 new RedisSinkOptions.Builder()
                         .setMaxRetryTimes(config.get(RedisOptions.SINK_MAX_RETRIES))
+                        .setKeyPrefix(config.get(RedisOptions.KEYPREFIX))
                         .setRedisValueDataStructure(config.get(RedisOptions.VALUE_DATA_STRUCTURE))
                         .build();
         this.resolvedSchema = resolvedSchema;

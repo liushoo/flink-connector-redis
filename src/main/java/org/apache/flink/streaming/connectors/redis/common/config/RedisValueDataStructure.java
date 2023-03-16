@@ -6,5 +6,6 @@ public enum RedisValueDataStructure {
     // and value is the second field).
     column,
     // value is taken from the entire row, separated by '\01'.
-    row
+    row,
+    JSON
 }

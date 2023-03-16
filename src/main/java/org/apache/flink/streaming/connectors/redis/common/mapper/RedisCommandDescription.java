@@ -9,7 +9,6 @@ public class RedisCommandDescription extends RedisCommandBaseDescription impleme
     private static final long serialVersionUID = 1L;
 
     private Integer ttl;
-
     private LocalTime expireTime;
 
     public RedisCommandDescription(RedisCommand redisCommand, Integer ttl, LocalTime expireTime) {

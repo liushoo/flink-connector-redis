@@ -28,6 +28,7 @@ public class RedisDynamicTableSource implements LookupTableSource {
 
     @Override
     public LookupRuntimeProvider getLookupRuntimeProvider(LookupContext context) {
+
         return AsyncTableFunctionProvider.of(
                 new RedisLookupFunction(
                         flinkConfigBase, redisMapper, redisCacheOptions, resolvedSchema));
@@ -56,6 +57,7 @@ public class RedisDynamicTableSource implements LookupTableSource {
                         .setCacheMaxSize(config.get(RedisOptions.LOOKUP_CACHE_MAX_ROWS))
                         .setMaxRetryTimes(config.get(RedisOptions.LOOKUP_MAX_RETRIES))
                         .setLoadAll(config.get(RedisOptions.LOOKUP_CACHE_LOAD_ALL))
+                        .setKeyPrefix(config.get(RedisOptions.KEYPREFIX))
                         .setRedisValueDataStructure(config.get(RedisOptions.VALUE_DATA_STRUCTURE))
                         .build();
     }

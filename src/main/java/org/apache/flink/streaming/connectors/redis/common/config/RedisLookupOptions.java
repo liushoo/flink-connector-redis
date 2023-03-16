@@ -9,16 +9,26 @@ public class RedisLookupOptions {
     private final boolean loadAll;
     private final RedisValueDataStructure redisValueDataStructure;
 
+
+    public String getKeyPrefix() {
+        return keyPrefix;
+    }
+
+    private  String keyPrefix;
+
     public RedisLookupOptions(
             long cacheMaxSize,
             long cacheTtl,
             int maxRetryTimes,
             boolean loadAll,
-            RedisValueDataStructure redisValueDataStructure) {
+            String keyPrefix,
+            RedisValueDataStructure redisValueDataStructure
+            ) {
         this.cacheMaxSize = cacheMaxSize;
         this.cacheTtl = cacheTtl;
         this.maxRetryTimes = maxRetryTimes;
         this.loadAll = loadAll;
+        this.keyPrefix=keyPrefix;
         this.redisValueDataStructure = redisValueDataStructure;
     }
 
@@ -48,6 +58,7 @@ public class RedisLookupOptions {
         private long cacheTtl = -1L;
         private int maxRetryTimes = 1;
         private boolean loadAll = false;
+        private String keyPrefix="";
         private RedisValueDataStructure redisValueDataStructure =
                 RedisOptions.VALUE_DATA_STRUCTURE.defaultValue();
 
@@ -55,7 +66,10 @@ public class RedisLookupOptions {
             this.cacheMaxSize = cacheMaxSize;
             return this;
         }
-
+        public Builder setKeyPrefix(String keyPrefix) {
+            this.keyPrefix = keyPrefix;
+            return this;
+        }
         public Builder setCacheTTL(long cacheTtl) {
             this.cacheTtl = cacheTtl;
             return this;
@@ -78,7 +92,7 @@ public class RedisLookupOptions {
 
         public RedisLookupOptions build() {
             return new RedisLookupOptions(
-                    cacheMaxSize, cacheTtl, maxRetryTimes, loadAll, redisValueDataStructure);
+                    cacheMaxSize, cacheTtl, maxRetryTimes, loadAll, keyPrefix,redisValueDataStructure);
         }
     }
 }

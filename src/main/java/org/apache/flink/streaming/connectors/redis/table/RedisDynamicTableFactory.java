@@ -3,6 +3,7 @@ package org.apache.flink.streaming.connectors.redis.table;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.connectors.redis.common.config.RedisOptions;
+import org.apache.flink.table.catalog.ResolvedCatalogTable;
 import org.apache.flink.table.connector.sink.DynamicTableSink;
 import org.apache.flink.table.connector.source.DynamicTableSource;
 import org.apache.flink.table.factories.DynamicTableSinkFactory;
@@ -19,8 +20,8 @@ public class RedisDynamicTableFactory
         implements DynamicTableSinkFactory, DynamicTableSourceFactory {
 
     public static final String IDENTIFIER = "redis";
-
-    public static final String CACHE_SEPERATOR = "\01";
+    //分割
+    public static final String CACHE_SEPERATOR = "|";
 
     @Override
     public DynamicTableSource createDynamicTableSource(Context context) {
@@ -38,6 +39,7 @@ public class RedisDynamicTableFactory
         ReadableConfig config = helper.getOptions();
         helper.validate();
         validateConfigOptions(config);
+
         return new RedisDynamicTableSource(
                 context.getCatalogTable().getOptions(),
                 context.getCatalogTable().getResolvedSchema(),
@@ -106,6 +108,7 @@ public class RedisDynamicTableFactory
         options.add(RedisOptions.REDIS_MASTER_NAME);
         options.add(RedisOptions.SENTINELS_INFO);
         options.add(RedisOptions.EXPIRE_ON_TIME);
+        options.add(RedisOptions.KEYPREFIX);
         return options;
     }
 

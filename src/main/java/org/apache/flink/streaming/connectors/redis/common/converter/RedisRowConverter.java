@@ -75,6 +75,7 @@ public class RedisRowConverter {
                                     "The precision %s of Time type is out of range [%s, %s]",
                                     precision, TIMESTAMP_PRECISION_MIN, TIMESTAMP_PRECISION_MAX));
                 }
+                //System.out.println(precision+"===TIME_WITHOUT_TIME_ZONE==");
                 return Integer::valueOf;
             case TIMESTAMP_WITHOUT_TIME_ZONE:
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
@@ -85,6 +86,7 @@ public class RedisRowConverter {
                                     "The precision %s of Timestamp is out of " + "range [%s, %s]",
                                     precision, TIMESTAMP_PRECISION_MIN, TIMESTAMP_PRECISION_MAX));
                 }
+
                 return result -> {
                     long milliseconds = Long.valueOf(result);
                     return TimestampData.fromEpochMillis(milliseconds);
@@ -99,7 +101,10 @@ public class RedisRowConverter {
         switch (fieldType.getTypeRoot()) {
             case CHAR:
             case VARCHAR:
-                return (rowData, index) -> rowData.getString(index).toString();
+                return (rowData, index) ->{
+                   String value= rowData.getString(index).toString();
+                   return  value;
+                } ;
             case BOOLEAN:
                 return (rowData, index) -> String.valueOf(rowData.getBoolean(index));
             case BINARY:
@@ -130,7 +135,10 @@ public class RedisRowConverter {
                                     "The precision %s of Time type is out of range [%s, %s]",
                                     precision, TIMESTAMP_PRECISION_MIN, TIMESTAMP_PRECISION_MAX));
                 }
-                return (rowData, index) -> String.valueOf(rowData.getInt(index));
+                return (rowData, index) ->{
+                    String value=String.valueOf(rowData.getInt(index));
+                    return value;
+                };
             case BIGINT:
             case INTERVAL_DAY_TIME:
                 return (rowData, index) -> String.valueOf(rowData.getLong(index));
@@ -147,8 +155,80 @@ public class RedisRowConverter {
                                     "The precision %s of Timestamp is out of range [%s, %s]",
                                     precision, TIMESTAMP_PRECISION_MIN, TIMESTAMP_PRECISION_MAX));
                 }
+                return (rowData, index) ->{
+                    String millisecond=String.valueOf(rowData.getTimestamp(index, precision).getMillisecond());
+                    return millisecond.toString();
+                };
+
+            default:
+                throw new UnsupportedOperationException("Unsupported field type: " + fieldType);
+        }
+    }
+    private static RedisSerializationConverter createSerializer_bak(LogicalType fieldType) {
+        int precision;
+        switch (fieldType.getTypeRoot()) {
+            case CHAR:
+            case VARCHAR:
+                return (rowData, index) ->{
+                    String value= rowData.getString(index).toString();
+                    return  value;
+                } ;
+            case BOOLEAN:
+                return (rowData, index) -> String.valueOf(rowData.getBoolean(index));
+            case BINARY:
+            case VARBINARY:
                 return (rowData, index) ->
-                        String.valueOf(rowData.getTimestamp(index, precision).getMillisecond());
+                        Base64.getEncoder().encodeToString(rowData.getBinary(index));
+            case DECIMAL:
+                DecimalType decimalType = (DecimalType) fieldType;
+                precision = decimalType.getPrecision();
+                final int scale = decimalType.getScale();
+                return (rowData, index) -> {
+                    BigDecimal decimal = rowData.getDecimal(index, precision, scale).toBigDecimal();
+                    return decimal.toString();
+                };
+            case TINYINT:
+                return (rowData, index) -> String.valueOf(rowData.getByte(index));
+            case SMALLINT:
+                return (rowData, index) -> String.valueOf(rowData.getShort(index));
+            case INTEGER:
+            case DATE:
+            case INTERVAL_YEAR_MONTH:
+                return (rowData, index) -> String.valueOf(rowData.getInt(index));
+            case TIME_WITHOUT_TIME_ZONE:
+                precision = getPrecision(fieldType);
+                if (precision < TIMESTAMP_PRECISION_MIN || precision > TIMESTAMP_PRECISION_MAX) {
+                    throw new UnsupportedOperationException(
+                            String.format(
+                                    "The precision %s of Time type is out of range [%s, %s]",
+                                    precision, TIMESTAMP_PRECISION_MIN, TIMESTAMP_PRECISION_MAX));
+                }
+                return (rowData, index) ->{
+                    String value=String.valueOf(rowData.getInt(index));
+                    return value;
+                };
+            case BIGINT:
+            case INTERVAL_DAY_TIME:
+                return (rowData, index) -> String.valueOf(rowData.getLong(index));
+            case FLOAT:
+                return (rowData, index) -> String.valueOf(rowData.getFloat(index));
+            case DOUBLE:
+                return (rowData, index) -> String.valueOf(rowData.getDouble(index));
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+
+                precision = getPrecision(fieldType);
+                if (precision < TIMESTAMP_PRECISION_MIN || precision > TIMESTAMP_PRECISION_MAX) {
+                    throw new UnsupportedOperationException(
+                            String.format(
+                                    "The precision %s of Timestamp is out of range [%s, %s]",
+                                    precision, TIMESTAMP_PRECISION_MIN, TIMESTAMP_PRECISION_MAX));
+                }
+                return (rowData, index) ->{
+                    String millisecond=String.valueOf(rowData.getTimestamp(index, precision).getMillisecond());
+                    return millisecond.toString();
+                };
+
             default:
                 throw new UnsupportedOperationException("Unsupported field type: " + fieldType);
         }
